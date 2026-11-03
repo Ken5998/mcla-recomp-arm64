@@ -1,0 +1,8 @@
+{
+  "repository": "https://github.com/RenanQueiroz/mcla-recomp",
+  "commit": "db31d597d3324c9b69c06d78b4ca4a0ac5b75a18",
+  "sdk_repository": "https://github.com/rexglue/rexglue-sdk",
+  "sdk_tag": "v0.10.0",
+  "sdk_commit": "f5337cdc947ff6d4c4196737e2c807a48f2a1fc2",
+  "verified_utc": "2026-11-03T00:00:00Z"
+}

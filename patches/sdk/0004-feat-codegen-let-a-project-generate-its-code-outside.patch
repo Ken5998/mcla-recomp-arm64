@@ -1,0 +1,57 @@
+From 080f1a6da3a602014fc12c140070fc7bdd89e97e Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Kenan=20Kasumovi=C4=87?=
+ <46025606+Ken5998@users.noreply.github.com>
+Date: Tue, 3 Nov 2026 11:18:09 +0000
+Subject: [PATCH] feat(codegen): let a project generate its code outside the
+ build
+
+A cross build cannot run the rexglue the build itself would run: it is
+built for the target. With REXGLUE_EXTERNAL_CODEGEN on, the generated
+rexglue.cmake keeps an empty <project>_codegen target instead of the
+custom command, and the code that `rexglue codegen` made beforehand is
+compiled as it is.
+---
+ resources/templates/init/rexglue_cmake.inja | 30 +++++++++++++--------
+ 1 file changed, 19 insertions(+), 11 deletions(-)
+
+diff --git a/resources/templates/init/rexglue_cmake.inja b/resources/templates/init/rexglue_cmake.inja
+index f39557b..9a1337f 100644
+--- a/resources/templates/init/rexglue_cmake.inja
++++ b/resources/templates/init/rexglue_cmake.inja
+@@ -114,17 +114,25 @@ endmacro()
+ # codegen, including one a project assembles itself rather than taking the
+ # library rexglue_setup_target() builds. The stamp comes first: the DEPFILE
+ # names it.
+-add_custom_command(
+-    OUTPUT "{{ cmake_var("CMAKE_CURRENT_SOURCE_DIR") }}/{{ entrypoint_out_dir }}/codegen.build.stamp"
+-           {{ cmake_var("REXGLUE_ENTRYPOINT_GENERATED_SOURCES") }}
+-    COMMAND $<TARGET_FILE:rex::rexglue> codegen {{ cmake_var("CMAKE_CURRENT_SOURCE_DIR") }}/{{ names.snake_case }}_manifest.toml
+-    DEPFILE "{{ cmake_var("CMAKE_CURRENT_SOURCE_DIR") }}/{{ entrypoint_out_dir }}/codegen.d"
+-    WORKING_DIRECTORY {{ cmake_var("CMAKE_CURRENT_SOURCE_DIR") }}
+-    COMMENT "Generating recompiled code for {{ names.snake_case }}"
+-    VERBATIM
+-)
+-add_custom_target({{ names.snake_case }}_codegen
+-    DEPENDS "{{ cmake_var("CMAKE_CURRENT_SOURCE_DIR") }}/{{ entrypoint_out_dir }}/codegen.build.stamp")
++# REXGLUE_EXTERNAL_CODEGEN: generated code made before the build, by
++# `rexglue codegen` run on its own (a cross build has to: the rexglue it
++# would run is built for the target), so the build leaves it as it is.
++option(REXGLUE_EXTERNAL_CODEGEN "Generated code is made outside the build" OFF)
++if(REXGLUE_EXTERNAL_CODEGEN)
++    add_custom_target({{ names.snake_case }}_codegen)
++else()
++    add_custom_command(
++        OUTPUT "{{ cmake_var("CMAKE_CURRENT_SOURCE_DIR") }}/{{ entrypoint_out_dir }}/codegen.build.stamp"
++               {{ cmake_var("REXGLUE_ENTRYPOINT_GENERATED_SOURCES") }}
++        COMMAND $<TARGET_FILE:rex::rexglue> codegen {{ cmake_var("CMAKE_CURRENT_SOURCE_DIR") }}/{{ names.snake_case }}_manifest.toml
++        DEPFILE "{{ cmake_var("CMAKE_CURRENT_SOURCE_DIR") }}/{{ entrypoint_out_dir }}/codegen.d"
++        WORKING_DIRECTORY {{ cmake_var("CMAKE_CURRENT_SOURCE_DIR") }}
++        COMMENT "Generating recompiled code for {{ names.snake_case }}"
++        VERBATIM
++    )
++    add_custom_target({{ names.snake_case }}_codegen
++        DEPENDS "{{ cmake_var("CMAKE_CURRENT_SOURCE_DIR") }}/{{ entrypoint_out_dir }}/codegen.build.stamp")
++endif()
+ 
+ # Include DLL module shared library targets if codegen has generated them
+ if(EXISTS "{{ cmake_var("CMAKE_CURRENT_SOURCE_DIR") }}/{{ entrypoint_out_dir }}/dll_targets.cmake")

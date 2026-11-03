@@ -1,0 +1,69 @@
+name: ARM64 build
+
+# Builds ReXGlue SDK v0.10.0 the way the MCLA recomp fork patches it (its
+# patches, then patches/sdk/) for linux-arm64 with the Vulkan backend, then
+# the game (patches/game/) against it, natively on GitHub's ARM64 runner in a
+# bare Fedora 44 (the release ArmadaOS is built on) with only the pinned
+# toolchain, as the handheld does.
+#
+# No game files are involved: the game is built with placeholder recompiled
+# code (scripts/placeholder-codegen.py), which checks that everything
+# compiles and links but does not make a game that runs.
+
+on:
+  # Every branch: work reaches main without pull requests, once this is green.
+  push:
+    branches: ['**']
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: mcla-recomp commit or branch (default the one in upstream.json)
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  native:
+    runs-on: ubuntu-24.04-arm
+    container: registry.fedoraproject.org/fedora:44
+    timeout-minutes: 150
+    steps:
+      # No compilers, CMake or development files, as on ArmadaOS: the pinned
+      # toolchain and sysroot bring them.
+      - name: Install git, Python, the download tools and the desktop libraries
+        run: >-
+          dnf install -y --setopt=install_weak_deps=False git python3 curl tar xz
+          libX11 libX11-xcb libxcb libwayland-client
+      - uses: actions/checkout@v5
+      - name: Fetch the pinned toolchain
+        run: scripts/fetch-toolchain.sh "$RUNNER_TEMP/toolchain"
+      - name: Check out mcla-recomp and the patched SDK
+        env:
+          REF: ${{ inputs.ref }}
+        run: scripts/prepare.sh "$RUNNER_TEMP/work" ${REF:+"$REF"}
+      - name: Build the SDK
+        run: scripts/build-sdk.sh "$RUNNER_TEMP/work/rexglue-sdk" "$RUNNER_TEMP/toolchain"
+      - name: Build the game with placeholder recompiled code
+        run: |
+          scripts/placeholder-codegen.py "$RUNNER_TEMP/work/mcla-recomp" "$RUNNER_TEMP/work/rexglue-sdk"
+          scripts/build-game.sh "$RUNNER_TEMP/work/mcla-recomp" "$RUNNER_TEMP/work/rexglue-sdk/out/install/linux-arm64" \
+            "$RUNNER_TEMP/toolchain"
+      - name: Check that the libraries resolve on Fedora 44
+        run: |
+          b="$RUNNER_TEMP/work/mcla-recomp/out/build/linux-arm64"
+          lib="$RUNNER_TEMP/work/rexglue-sdk/out/install/linux-arm64/lib"
+          LD_LIBRARY_PATH="$lib" ldd "$b/mcla" "$lib/librexgpu-xenos.so" | tee ldd.txt
+          ! grep -q "not found" ldd.txt
+      - name: Check the settings and Add to Steam with a made-up Steam folder
+        run: |
+          python3 scripts/configure.py "$RUNNER_TEMP/mcla.toml"
+          grep -q '^mcla_fps = 30$' "$RUNNER_TEMP/mcla.toml"
+          echo 'mcla_fps = 60' > "$RUNNER_TEMP/kept.toml"
+          python3 scripts/configure.py "$RUNNER_TEMP/kept.toml"
+          test "$(grep -c '^mcla_fps' "$RUNNER_TEMP/kept.toml")" = 1
+          mkdir -p "$RUNNER_TEMP/dist" "$RUNNER_TEMP/home/.local/share/Steam/userdata/1/config"
+          cp scripts/mcla.sh "$RUNNER_TEMP/dist/"
+          HOME="$RUNNER_TEMP/home" python3 scripts/add-to-steam.py "$RUNNER_TEMP/dist"
+          grep -a -q 'Midnight Club: Los Angeles (Recomp)' "$RUNNER_TEMP/home/.local/share/Steam/userdata/1/config/shortcuts.vdf"
+          HOME="$RUNNER_TEMP/home" python3 scripts/add-to-steam.py "$RUNNER_TEMP/dist" | grep -q 'already in Steam'

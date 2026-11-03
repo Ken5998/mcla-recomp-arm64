@@ -1,0 +1,56 @@
+From a29eb7bd5ac24e34872369455471e29732cb6f5e Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Kenan=20Kasumovi=C4=87?=
+ <46025606+Ken5998@users.noreply.github.com>
+Date: Tue, 3 Nov 2026 11:18:09 +0000
+Subject: [PATCH] build(linux): generate the recompiled code outside the build
+ when asked
+
+The same REXGLUE_EXTERNAL_CODEGEN option that patched SDK's template
+writes, so the file stays as the patched rexglue codegen renders it: a
+cross build (and the arm64 build script, which runs codegen as its own
+step) compiles the code made beforehand without running rexglue again.
+---
+ generated/rexglue.cmake | 30 +++++++++++++++++++-----------
+ 1 file changed, 19 insertions(+), 11 deletions(-)
+
+diff --git a/generated/rexglue.cmake b/generated/rexglue.cmake
+index 169b166..33338d1 100644
+--- a/generated/rexglue.cmake
++++ b/generated/rexglue.cmake
+@@ -114,17 +114,25 @@ endmacro()
+ # codegen, including one a project assembles itself rather than taking the
+ # library rexglue_setup_target() builds. The stamp comes first: the DEPFILE
+ # names it.
+-add_custom_command(
+-    OUTPUT "${CMAKE_CURRENT_SOURCE_DIR}/generated/default/codegen.build.stamp"
+-           ${REXGLUE_ENTRYPOINT_GENERATED_SOURCES}
+-    COMMAND $<TARGET_FILE:rex::rexglue> codegen ${CMAKE_CURRENT_SOURCE_DIR}/mcla_manifest.toml
+-    DEPFILE "${CMAKE_CURRENT_SOURCE_DIR}/generated/default/codegen.d"
+-    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+-    COMMENT "Generating recompiled code for mcla"
+-    VERBATIM
+-)
+-add_custom_target(mcla_codegen
+-    DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/generated/default/codegen.build.stamp")
++# REXGLUE_EXTERNAL_CODEGEN: generated code made before the build, by
++# `rexglue codegen` run on its own (a cross build has to: the rexglue it
++# would run is built for the target), so the build leaves it as it is.
++option(REXGLUE_EXTERNAL_CODEGEN "Generated code is made outside the build" OFF)
++if(REXGLUE_EXTERNAL_CODEGEN)
++    add_custom_target(mcla_codegen)
++else()
++    add_custom_command(
++        OUTPUT "${CMAKE_CURRENT_SOURCE_DIR}/generated/default/codegen.build.stamp"
++               ${REXGLUE_ENTRYPOINT_GENERATED_SOURCES}
++        COMMAND $<TARGET_FILE:rex::rexglue> codegen ${CMAKE_CURRENT_SOURCE_DIR}/mcla_manifest.toml
++        DEPFILE "${CMAKE_CURRENT_SOURCE_DIR}/generated/default/codegen.d"
++        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
++        COMMENT "Generating recompiled code for mcla"
++        VERBATIM
++    )
++    add_custom_target(mcla_codegen
++        DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/generated/default/codegen.build.stamp")
++endif()
+ 
+ # Include DLL module shared library targets if codegen has generated them
+ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/generated/default/dll_targets.cmake")
